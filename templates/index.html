@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Snap Viewer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#111;color:white;font-family:sans-serif;padding:20px;max-width:1200px;margin:0 auto}
+h1{text-align:center;margin-bottom:20px}
+.search{display:flex;justify-content:center;gap:10px;margin-bottom:20px}
+.search input{padding:10px 16px;width:300px;border-radius:20px;border:none;font-size:16px}
+.search button{padding:10px 20px;background:#FFFC00;color:black;border:none;border-radius:20px;font-size:16px;cursor:pointer;font-weight:bold}
+#profile{display:none;align-items:center;gap:20px;background:#222;border-radius:16px;padding:20px;margin-bottom:20px}
+#profile img{width:80px;height:80px;border-radius:50%;object-fit:cover;background:#333}
+#p-name{font-size:20px;font-weight:bold;margin-bottom:4px}
+#p-username{color:#aaa;font-size:14px}
+#p-location{color:#aaa;font-size:14px;margin-top:4px}
+.section{margin-bottom:30px}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #FFFC00}
+.section-title{font-size:18px;font-weight:bold;color:#FFFC00}
+.dl-all-btn{padding:8px 16px;background:#FFFC00;color:black;border:none;border-radius:20px;font-size:13px;cursor:pointer;font-weight:bold}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.snap{background:#222;border-radius:12px;overflow:hidden;cursor:pointer;position:relative}
+.snap:hover{opacity:0.85;transform:scale(1.02);transition:0.2s}
+.snap video,.snap img{width:100%;height:280px;object-fit:cover;display:block;pointer-events:none}
+.snap-time{position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);padding:3px 7px;border-radius:10px;font-size:11px;color:white}
+.snap-type{position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.6);padding:3px 7px;border-radius:10px;font-size:11px}
+.dl{display:block;background:#FFFC00;color:black;padding:8px;text-decoration:none;font-weight:bold;text-align:center;font-size:13px}
+.history{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:15px}
+.history-btn{padding:5px 12px;background:#333;color:white;border:none;border-radius:15px;cursor:pointer;font-size:13px}
+.history-btn:hover{background:#FFFC00;color:black}
+.skeleton{background:#222;border-radius:12px;height:310px;animation:pulse 1.5s infinite}
+@keyframes pulse{0%{opacity:0.4}50%{opacity:0.8}100%{opacity:0.4}}
+/* Lightbox */
+#lightbox{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.95);z-index:1000;align-items:center;justify-content:center;flex-direction:column}
+#lightbox.active{display:flex}
+#lb-media{max-height:80vh;max-width:90vw;border-radius:12px}
+#lb-progress{display:flex;gap:4px;position:absolute;top:15px;left:50%;transform:translateX(-50%);width:90%}
+.lb-bar{flex:1;height:3px;background:rgba(255,255,255,0.3);border-radius:2px}
+.lb-bar.done{background:white}
+.lb-bar.active{background:white;animation:progress-anim 5s linear forwards}
+@keyframes progress-anim{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0% 0 0)}}
+#lb-close{position:absolute;top:15px;right:20px;font-size:28px;cursor:pointer;color:white;z-index:1001}
+#lb-prev{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:40px;cursor:pointer;color:white;background:rgba(0,0,0,0.3);border:none;border-radius:50%;width:50px;height:50px}
+#lb-next{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:40px;cursor:pointer;color:white;background:rgba(0,0,0,0.3);border:none;border-radius:50%;width:50px;height:50px}
+#lb-download{position:absolute;bottom:20px;background:#FFFC00;color:black;border:none;padding:10px 24px;border-radius:20px;font-size:15px;cursor:pointer;font-weight:bold}
+#lb-counter{position:absolute;bottom:65px;color:white;font-size:14px;opacity:0.7}
+</style>
+</head>
+<body>
+<h1>👻 Snap Viewer</h1>
+<div class="search">
+  <input type="text" id="un" placeholder="Enter Snapchat username">
+  <button id="btn">View Stories</button>
+</div>
+<div id="history-bar" class="history"></div>
+<div id="profile">
+  <img id="p-avatar" src="" alt="">
+  <div>
+    <div id="p-name"></div>
+    <div id="p-username"></div>
+    <div id="p-location"></div>
+  </div>
+</div>
+<div id="content"></div>
+
+<!-- Lightbox -->
+<div id="lightbox">
+  <div id="lb-progress"></div>
+  <span id="lb-close">&times;</span>
+  <button id="lb-prev">&#8249;</button>
+  <img id="lb-img" style="display:none" class="" src="">
+  <video id="lb-vid" style="display:none" controls autoplay></video>
+  <button id="lb-next">&#8250;</button>
+  <div id="lb-counter"></div>
+  <button id="lb-download">⬇ Download</button>
+</div>
+
+<script>
+var highlightUrls=[], storyUrls=[], currentUsername="";
+var allSnaps=[], currentLbIndex=0;
+var snapHistory=JSON.parse(localStorage.getItem("snapHistory")||"[]");
+
+function timeAgo(ts){
+  if(!ts)return"";
+  var diff=Date.now()-ts;
+  var h=Math.floor(diff/3600000);
+  var m=Math.floor(diff/60000);
+  if(h>0)return h+"h ago";
+  if(m>0)return m+"m ago";
+  return"Just now";
+}
+
+function updateHistory(u){
+  snapHistory=snapHistory.filter(function(x){return x!==u;});
+  snapHistory.unshift(u);
+  if(snapHistory.length>5)snapHistory=snapHistory.slice(0,5);
+  localStorage.setItem("snapHistory",JSON.stringify(snapHistory));
+  renderHistory();
+}
+
+function renderHistory(){
+  var bar=document.getElementById("history-bar");
+  bar.innerHTML="";
+  snapHistory.forEach(function(u){
+    var btn=document.createElement("button");
+    btn.className="history-btn";
+    btn.textContent=u;
+    btn.onclick=function(){
+      document.getElementById("un").value=u;
+      document.getElementById("btn").click();
+    };
+    bar.appendChild(btn);
+  });
+}
+
+renderHistory();
+
+document.getElementById("btn").addEventListener("click", async function(){
+  var u=document.getElementById("un").value.trim();
+  if(!u){alert("Enter a username");return;}
+  var content=document.getElementById("content");
+  content.innerHTML="";
+  // Skeleton loading
+  for(var s=0;s<6;s++){
+    var sk=document.createElement("div");
+    sk.className="skeleton";
+    content.appendChild(sk);
+  }
+  highlightUrls=[]; storyUrls=[]; allSnaps=[]; currentUsername=u;
+
+  var r=await fetch("/api/stories/"+u);
+  var j=await r.json();
+  var pp=j.props.pageProps;
+  content.innerHTML="";
+  updateHistory(u);
+
+  // Profile
+  var prof=document.getElementById("profile");
+  var name=pp.userInfo&&pp.userInfo.displayName?pp.userInfo.displayName:u;
+  var avatar=pp.userInfo&&pp.userInfo.profilePictureUrl?pp.userInfo.profilePictureUrl:"";
+  var loc=pp.userInfo&&pp.userInfo.location?pp.userInfo.location:"";
+  document.getElementById("p-name").textContent=name;
+  document.getElementById("p-username").textContent="@"+u;
+  document.getElementById("p-location").textContent=loc;
+  document.getElementById("p-avatar").src=avatar?"/proxy?url="+encodeURIComponent(avatar):"";
+  prof.style.display="flex";
+
+  // Highlights
+  if(pp.curatedHighlights&&pp.curatedHighlights.length>0&&pp.curatedHighlights[0].snapList.length>0){
+    var sec=document.createElement("div");
+    sec.className="section";
+    var hdr=document.createElement("div");
+    hdr.className="section-header";
+    hdr.innerHTML='<span class="section-title">Highlights</span>';
+    var btn=document.createElement("button");
+    btn.className="dl-all-btn";
+    btn.textContent="⬇ Download All Highlights";
+    btn.onclick=function(){downloadAll(highlightUrls);};
+    hdr.appendChild(btn);
+    sec.appendChild(hdr);
+    var grid=document.createElement("div");
+    grid.className="grid";
+    var hSnaps=pp.curatedHighlights[0].snapList;
+    var hOffset=allSnaps.length;
+    hSnaps.forEach(function(snap,i){renderSnap(snap,grid,highlightUrls,hOffset+i);});
+    sec.appendChild(grid);
+    content.appendChild(sec);
+  }
+
+  // Current stories
+  if(pp.story&&pp.story.snapList&&pp.story.snapList.length>0){
+    var sec2=document.createElement("div");
+    sec2.className="section";
+    var hdr2=document.createElement("div");
+    hdr2.className="section-header";
+    hdr2.innerHTML='<span class="section-title">Current Stories</span>';
+    var btn2=document.createElement("button");
+    btn2.className="dl-all-btn";
+    btn2.textContent="⬇ Download All Stories";
+    btn2.onclick=function(){downloadAll(storyUrls);};
+    hdr2.appendChild(btn2);
+    sec2.appendChild(hdr2);
+    var grid2=document.createElement("div");
+    grid2.className="grid";
+    var sOffset=allSnaps.length;
+    pp.story.snapList.forEach(function(snap,i){renderSnap(snap,grid2,storyUrls,sOffset+i);});
+    sec2.appendChild(grid2);
+    content.appendChild(sec2);
+  }
+
+  if(content.innerHTML===""){
+    content.innerHTML="<p style='text-align:center;padding:40px'>No stories found.</p>";
+  }
+});
+
+function renderSnap(snap,container,urlList,globalIndex){
+  var url=snap.snapUrls&&snap.snapUrls.mediaUrl?snap.snapUrls.mediaUrl:null;
+  if(!url)return;
+  urlList.push(url);
+  allSnaps.push(snap);
+  var div=document.createElement("div");
+  div.className="snap";
+  var isVideo=snap.snapMediaType===1;
+  var ts=snap.timestampIndex?snap.timestampIndex.value:null;
+  if(isVideo){
+    var v=document.createElement("video");
+    v.src=url;div.appendChild(v);
+    var badge=document.createElement("span");
+    badge.className="snap-type";badge.textContent="▶ Video";div.appendChild(badge);
+  }else{
+    var i=document.createElement("img");
+    i.src="/proxy?url="+encodeURIComponent(url);
+    div.appendChild(i);
+  }
+  if(ts){
+    var tBadge=document.createElement("span");
+    tBadge.className="snap-time";tBadge.textContent=timeAgo(ts);
+    div.appendChild(tBadge);
+  }
+  div.addEventListener("click",function(){openLightbox(globalIndex);});
+  var a=document.createElement("a");
+  a.href="/download?url="+encodeURIComponent(url)+"&username="+currentUsername+"&index="+globalIndex;
+  a.className="dl";a.textContent="Download";
+  a.addEventListener("click",function(e){e.stopPropagation();});
+  div.appendChild(a);
+  container.appendChild(div);
+}
+
+function openLightbox(index){
+  currentLbIndex=index;
+  document.getElementById("lightbox").classList.add("active");
+  showLbSnap(index);
+  buildProgress();
+}
+
+function buildProgress(){
+  var bar=document.getElementById("lb-progress");
+  bar.innerHTML="";
+  allSnaps.forEach(function(_,i){
+    var b=document.createElement("div");
+    b.className="lb-bar"+(i<currentLbIndex?" done":i===currentLbIndex?" active":"");
+    bar.appendChild(b);
+  });
+}
+
+function showLbSnap(index){
+  var snap=allSnaps[index];
+  var url=snap.snapUrls&&snap.snapUrls.mediaUrl?snap.snapUrls.mediaUrl:null;
+  var isVideo=snap.snapMediaType===1;
+  var img=document.getElementById("lb-img");
+  var vid=document.getElementById("lb-vid");
+  if(isVideo){
+    img.style.display="none";
+    vid.style.display="block";
+    vid.src=url;
+    vid.play();
+  }else{
+    vid.style.display="none";
+    vid.pause();
+    img.style.display="block";
+    img.src="/proxy?url="+encodeURIComponent(url);
+  }
+  document.getElementById("lb-counter").textContent=(index+1)+" / "+allSnaps.length;
+  document.getElementById("lb-download").onclick=function(){
+    var a=document.createElement("a");
+    a.href="/download?url="+encodeURIComponent(url)+"&username="+currentUsername+"&index="+globalIndex;
+    a.download="snap_"+index;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+  };
+  buildProgress();
+}
+
+document.getElementById("lb-close").onclick=function(){
+  document.getElementById("lightbox").classList.remove("active");
+  document.getElementById("lb-vid").pause();
+};
+document.getElementById("lb-prev").onclick=function(){
+  if(currentLbIndex>0){currentLbIndex--;showLbSnap(currentLbIndex);}
+};
+document.getElementById("lb-next").onclick=function(){
+  if(currentLbIndex<allSnaps.length-1){currentLbIndex++;showLbSnap(currentLbIndex);}
+};
+
+function downloadAll(urls){
+  urls.forEach(function(url,i){
+    setTimeout(function(){
+      var a=document.createElement("a");
+      a.href="/download?url="+encodeURIComponent(url)+"&username="+currentUsername+"&index="+globalIndex;
+      a.download="snap_"+i;
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
+    },i*500);
+  });
+}
+</script>
+</body>
+</html>
