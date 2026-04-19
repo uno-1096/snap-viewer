@@ -60,6 +60,7 @@ h1{text-align:center;margin-bottom:20px}
     <div id="p-name"></div>
     <div id="p-username"></div>
     <div id="p-location"></div>
+    <a id="timeline-btn" href="#" style="display:none;margin-top:10px;padding:8px 18px;background:#FFFC00;color:black;border-radius:20px;font-weight:bold;font-size:13px;text-decoration:none;">📅 View Timeline</a>
   </div>
 </div>
 <div id="content"></div>
@@ -142,6 +143,8 @@ document.getElementById("btn").addEventListener("click", async function(){
   var loc=pp.userInfo&&pp.userInfo.location?pp.userInfo.location:"";
   document.getElementById("p-name").textContent=name;
   document.getElementById("p-username").textContent="@"+u;
+  var tlBtn=document.getElementById("timeline-btn");
+  if(tlBtn){tlBtn.href="/timeline/"+u;tlBtn.style.display="inline-block";}
   document.getElementById("p-location").textContent=loc;
   document.getElementById("p-avatar").src=avatar?"/proxy?url="+encodeURIComponent(avatar):"";
   prof.style.display="flex";
