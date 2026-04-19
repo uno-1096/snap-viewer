@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Timeline – Snap Viewer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#111;color:white;font-family:sans-serif;min-height:100vh}
+
+/* Top bar */
+#topbar{position:sticky;top:0;z-index:100;background:#111;border-bottom:1px solid #222;padding:12px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+#topbar a{color:#FFFC00;text-decoration:none;font-size:20px;line-height:1}
+#topbar h2{font-size:16px;font-weight:bold;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.filter-btns{display:flex;gap:6px}
+.filter-btn{padding:5px 14px;border-radius:20px;border:1px solid #444;background:none;color:#aaa;font-size:13px;cursor:pointer;transition:0.15s}
+.filter-btn.active{background:#FFFC00;color:black;border-color:#FFFC00;font-weight:bold}
+#snap-count{font-size:13px;color:#aaa;white-space:nowrap}
+
+/* Month groups */
+#timeline{padding:0 20px 40px}
+.month-group{margin-bottom:32px}
+.month-label{position:sticky;top:53px;z-index:50;background:#111;padding:10px 0 8px;font-size:13px;font-weight:bold;color:#FFFC00;letter-spacing:0.05em;border-bottom:1px solid #222;margin-bottom:12px}
+.month-count{font-weight:400;color:#555;margin-left:6px}
+
+/* Grid */
+.snap-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.snap-card{background:#1a1a1a;border-radius:10px;overflow:hidden;cursor:pointer;position:relative;transition:transform 0.15s,opacity 0.15s}
+.snap-card:hover{transform:scale(1.03);opacity:0.9}
+.snap-card img,.snap-card video{width:100%;height:220px;object-fit:cover;display:block;pointer-events:none}
+.snap-badge{position:absolute;top:6px;left:6px;background:rgba(0,0,0,0.65);padding:2px 7px;border-radius:8px;font-size:11px}
+.snap-time-badge{position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.65);padding:2px 7px;border-radius:8px;font-size:11px;color:#ccc}
+.snap-dl{display:block;background:#FFFC00;color:black;padding:6px;text-align:center;font-size:12px;font-weight:bold;text-decoration:none}
+.snap-card.hidden{display:none}
+
+/* Empty */
+#empty{text-align:center;padding:60px 20px;color:#555;display:none}
+
+/* Loading */
+#loading{text-align:center;padding:60px 20px;color:#555}
+.spinner{width:36px;height:36px;border:3px solid #333;border-top-color:#FFFC00;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Lightbox */
+#lightbox{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:#000;z-index:1000;align-items:center;justify-content:center;flex-direction:column;user-select:none}
+#lightbox.active{display:flex}
+#lb-progress{position:absolute;top:12px;left:12px;right:12px;display:flex;gap:3px;z-index:10}
+.lb-bar{flex:1;height:3px;background:rgba(255,255,255,0.3);border-radius:2px;overflow:hidden}
+.lb-bar-fill{height:100%;width:0%;background:white;border-radius:2px}
+.lb-bar.done .lb-bar-fill{width:100%}
+#lb-media-wrap{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+#lb-img{max-height:100vh;max-width:100vw;object-fit:contain;display:none}
+#lb-vid{max-height:100vh;max-width:100vw;object-fit:contain;display:none}
+#lb-tap-left{position:absolute;left:0;top:0;width:35%;height:100%;z-index:5;cursor:pointer}
+#lb-tap-right{position:absolute;right:0;top:0;width:35%;height:100%;z-index:5;cursor:pointer}
+#lb-close{position:absolute;top:14px;right:16px;font-size:26px;cursor:pointer;color:white;z-index:20;background:none;border:none}
+#lb-download{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);background:#FFFC00;color:black;border:none;padding:10px 28px;border-radius:20px;font-size:15px;cursor:pointer;font-weight:bold;z-index:20}
+#lb-counter{position:absolute;bottom:70px;left:50%;transform:translateX(-50%);color:white;font-size:13px;opacity:0.6;z-index:20;white-space:nowrap}
+#lb-date{position:absolute;bottom:90px;left:50%;transform:translateX(-50%);color:#aaa;font-size:12px;z-index:20;white-space:nowrap}
+#lb-pause-icon{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:48px;color:white;opacity:0;transition:opacity 0.2s;pointer-events:none;z-index:15}
+#lb-pause-icon.visible{opacity:0.85}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <a href="/" title="Back">&#8592;</a>
+  <h2>👻 @{{ username }}</h2>
+  <div class="filter-btns">
+    <button class="filter-btn active" data-filter="all">All</button>
+    <button class="filter-btn" data-filter="photo">Photos</button>
+    <button class="filter-btn" data-filter="video">Videos</button>
+  </div>
+  <span id="snap-count"></span>
+</div>
+
+<div id="loading">
+  <div class="spinner"></div>
+  Loading snaps...
+</div>
+
+<div id="empty">No snaps found.</div>
+<div id="timeline"></div>
+
+<!-- Lightbox -->
+<div id="lightbox">
+  <div id="lb-progress"></div>
+  <button id="lb-close">&times;</button>
+  <div id="lb-media-wrap">
+    <img id="lb-img" src="" alt="">
+    <video id="lb-vid" playsinline></video>
+  </div>
+  <div id="lb-tap-left"></div>
+  <div id="lb-tap-right"></div>
+  <div id="lb-pause-icon">⏸</div>
+  <div id="lb-date"></div>
+  <div id="lb-counter"></div>
+  <button id="lb-download">⬇ Download</button>
+</div>
+
+<script>
+var USERNAME = {{ username|tojson }};
+var allSnaps = [];
+var filteredSnaps = [];
+var currentFilter = "all";
+var currentLbIndex = 0;
+var PHOTO_DURATION = 5000;
+var isPaused = false;
+var slideTimer = null, progressInterval = null;
+var progressStart = 0, progressElapsed = 0;
+
+var MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+function formatDate(ts){
+  var d = new Date(ts*1000);
+  return MONTHS[d.getMonth()]+" "+d.getDate()+", "+d.getFullYear()+" "+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+}
+
+function monthKey(ts){
+  var d = new Date(ts*1000);
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+}
+
+function monthLabel(key){
+  var parts = key.split("-");
+  return MONTHS[parseInt(parts[1])-1]+" "+parts[0];
+}
+
+async function loadSnaps(){
+  try{
+    var r = await fetch("/api/stories/"+USERNAME);
+    var j = await r.json();
+    var pp = j.props.pageProps;
+    var raw = [];
+
+    if(pp.curatedHighlights){
+      pp.curatedHighlights.forEach(function(h){
+        (h.snapList||[]).forEach(function(s){ s._section="highlight"; raw.push(s); });
+      });
+    }
+    if(pp.story&&pp.story.snapList){
+      pp.story.snapList.forEach(function(s){ s._section="story"; raw.push(s); });
+    }
+
+    // Sort oldest first
+    raw.sort(function(a,b){
+      var ta = a.timestampInSec?parseInt(a.timestampInSec.value):0;
+      var tb = b.timestampInSec?parseInt(b.timestampInSec.value):0;
+      return ta-tb;
+    });
+
+    allSnaps = raw;
+    document.getElementById("loading").style.display="none";
+    applyFilter("all");
+  }catch(e){
+    document.getElementById("loading").innerHTML="<p>Failed to load snaps.</p>";
+  }
+}
+
+function applyFilter(filter){
+  currentFilter = filter;
+  document.querySelectorAll(".filter-btn").forEach(function(b){
+    b.classList.toggle("active", b.dataset.filter===filter);
+  });
+
+  if(filter==="photo") filteredSnaps = allSnaps.filter(function(s){return s.snapMediaType!==1;});
+  else if(filter==="video") filteredSnaps = allSnaps.filter(function(s){return s.snapMediaType===1;});
+  else filteredSnaps = allSnaps.slice();
+
+  document.getElementById("snap-count").textContent = filteredSnaps.length+" snaps";
+  renderTimeline();
+}
+
+function renderTimeline(){
+  var tl = document.getElementById("timeline");
+  tl.innerHTML="";
+
+  if(filteredSnaps.length===0){
+    document.getElementById("empty").style.display="block";
+    return;
+  }
+  document.getElementById("empty").style.display="none";
+
+  // Group by month
+  var groups = {};
+  var groupOrder = [];
+  filteredSnaps.forEach(function(s, i){
+    var ts = s.timestampInSec?parseInt(s.timestampInSec.value):0;
+    var key = monthKey(ts);
+    if(!groups[key]){groups[key]=[];groupOrder.push(key);}
+    groups[key].push({snap:s, filteredIndex:i});
+  });
+
+  groupOrder.forEach(function(key){
+    var items = groups[key];
+    var group = document.createElement("div");
+    group.className="month-group";
+
+    var label = document.createElement("div");
+    label.className="month-label";
+    label.innerHTML=monthLabel(key)+'<span class="month-count">'+items.length+'</span>';
+    group.appendChild(label);
+
+    var grid = document.createElement("div");
+    grid.className="snap-grid";
+
+    items.forEach(function(item){
+      var s = item.snap;
+      var fi = item.filteredIndex;
+      var url = s.snapUrls&&s.snapUrls.mediaUrl?s.snapUrls.mediaUrl:null;
+      if(!url)return;
+      var isVideo = s.snapMediaType===1;
+      var ts = s.timestampInSec?parseInt(s.timestampInSec.value):0;
+
+      var card = document.createElement("div");
+      card.className="snap-card";
+
+      if(isVideo){
+        var v = document.createElement("video");
+        v.src=url;
+        card.appendChild(v);
+        var badge = document.createElement("span");
+        badge.className="snap-badge";
+        badge.textContent="▶ Video";
+        card.appendChild(badge);
+      }else{
+        var img = document.createElement("img");
+        img.src="/proxy?url="+encodeURIComponent(url);
+        img.loading="lazy";
+        card.appendChild(img);
+      }
+
+      if(ts){
+        var tb = document.createElement("span");
+        tb.className="snap-time-badge";
+        var d = new Date(ts*1000);
+        tb.textContent=d.toLocaleDateString([],{month:"short",day:"numeric"});
+        card.appendChild(tb);
+      }
+
+      card.addEventListener("click",function(){openLightbox(fi);});
+
+      var dl = document.createElement("a");
+      dl.href="/download?url="+encodeURIComponent(url)+"&username="+USERNAME+"&index="+fi;
+      dl.className="snap-dl";
+      dl.textContent="Download";
+      dl.addEventListener("click",function(e){e.stopPropagation();});
+      card.appendChild(dl);
+
+      grid.appendChild(card);
+    });
+
+    group.appendChild(grid);
+    tl.appendChild(group);
+  });
+}
+
+// ── Lightbox / Slideshow (same engine as index.html) ──
+
+function openLightbox(index){
+  currentLbIndex=index;
+  isPaused=false;
+  document.getElementById("lightbox").classList.add("active");
+  showSnap(index);
+}
+
+function closeLightbox(){
+  document.getElementById("lightbox").classList.remove("active");
+  stopSlide();
+  var vid=document.getElementById("lb-vid");
+  vid.pause(); vid.src="";
+}
+
+function showSnap(index){
+  if(index<0||index>=filteredSnaps.length){closeLightbox();return;}
+  currentLbIndex=index;
+  stopSlide(); isPaused=false;
+  document.getElementById("lb-pause-icon").classList.remove("visible");
+
+  var snap=filteredSnaps[index];
+  var url=snap.snapUrls&&snap.snapUrls.mediaUrl?snap.snapUrls.mediaUrl:null;
+  var isVideo=snap.snapMediaType===1;
+  var ts=snap.timestampInSec?parseInt(snap.timestampInSec.value):0;
+
+  var img=document.getElementById("lb-img");
+  var vid=document.getElementById("lb-vid");
+
+  buildProgress(index);
+  document.getElementById("lb-counter").textContent=(index+1)+" / "+filteredSnaps.length;
+  document.getElementById("lb-date").textContent=ts?formatDate(ts):"";
+
+  document.getElementById("lb-download").onclick=function(){
+    var a=document.createElement("a");
+    a.href="/download?url="+encodeURIComponent(url)+"&username="+USERNAME+"&index="+index;
+    a.download="snap_"+index;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+  };
+
+  if(isVideo){
+    img.style.display="none";
+    vid.style.display="block";
+    vid.src=url; vid.currentTime=0; vid.play();
+    vid.onended=function(){advanceSlide();};
+    startProgressVideo(vid);
+  }else{
+    vid.pause(); vid.src=""; vid.style.display="none";
+    img.style.display="block";
+    img.src="/proxy?url="+encodeURIComponent(url);
+    startProgressPhoto(PHOTO_DURATION);
+  }
+}
+
+function buildProgress(activeIndex){
+  var bar=document.getElementById("lb-progress");
+  bar.innerHTML="";
+  filteredSnaps.forEach(function(_,i){
+    var b=document.createElement("div");
+    b.className="lb-bar"+(i<activeIndex?" done":"");
+    var fill=document.createElement("div");
+    fill.className="lb-bar-fill";
+    b.appendChild(fill); bar.appendChild(b);
+  });
+}
+
+function getActiveFill(){
+  var bars=document.querySelectorAll(".lb-bar");
+  if(bars[currentLbIndex])return bars[currentLbIndex].querySelector(".lb-bar-fill");
+  return null;
+}
+
+function startProgressPhoto(duration){
+  progressStart=Date.now(); progressElapsed=0;
+  var fill=getActiveFill();
+  var tick=function(){
+    if(isPaused){progressInterval=requestAnimationFrame(tick);return;}
+    var elapsed=progressElapsed+(Date.now()-progressStart);
+    var pct=Math.min(elapsed/duration*100,100);
+    if(fill)fill.style.width=pct+"%";
+    if(pct>=100){advanceSlide();return;}
+    progressInterval=requestAnimationFrame(tick);
+  };
+  progressInterval=requestAnimationFrame(tick);
+  slideTimer=setTimeout(function(){advanceSlide();},duration);
+}
+
+function startProgressVideo(vid){
+  var fill=getActiveFill();
+  var tick=function(){
+    if(!vid.duration||isPaused){progressInterval=requestAnimationFrame(tick);return;}
+    var pct=(vid.currentTime/vid.duration)*100;
+    if(fill)fill.style.width=pct+"%";
+    if(pct<100)progressInterval=requestAnimationFrame(tick);
+  };
+  progressInterval=requestAnimationFrame(tick);
+}
+
+function stopSlide(){
+  if(slideTimer){clearTimeout(slideTimer);slideTimer=null;}
+  if(progressInterval){cancelAnimationFrame(progressInterval);progressInterval=null;}
+}
+
+function advanceSlide(){
+  if(currentLbIndex<filteredSnaps.length-1)showSnap(currentLbIndex+1);
+  else closeLightbox();
+}
+
+function goBack(){
+  if(currentLbIndex>0)showSnap(currentLbIndex-1);
+}
+
+function togglePause(){
+  var vid=document.getElementById("lb-vid");
+  var isVideo=filteredSnaps[currentLbIndex]&&filteredSnaps[currentLbIndex].snapMediaType===1;
+  if(!isPaused){
+    isPaused=true;
+    progressElapsed+=(Date.now()-progressStart);
+    if(slideTimer){clearTimeout(slideTimer);slideTimer=null;}
+    if(isVideo)vid.pause();
+    document.getElementById("lb-pause-icon").classList.add("visible");
+  }else{
+    isPaused=false;
+    progressStart=Date.now();
+    if(isVideo){vid.play();}
+    else{
+      var remaining=PHOTO_DURATION-progressElapsed;
+      slideTimer=setTimeout(function(){advanceSlide();},remaining);
+    }
+    document.getElementById("lb-pause-icon").classList.remove("visible");
+  }
+}
+
+document.getElementById("lb-tap-left").addEventListener("click",function(){goBack();});
+document.getElementById("lb-tap-right").addEventListener("click",function(){advanceSlide();});
+
+var holdTimer=null;
+document.getElementById("lb-media-wrap").addEventListener("mousedown",function(){holdTimer=setTimeout(togglePause,200);});
+document.getElementById("lb-media-wrap").addEventListener("mouseup",function(){clearTimeout(holdTimer);});
+document.getElementById("lightbox").addEventListener("touchstart",function(){holdTimer=setTimeout(togglePause,200);},false);
+document.getElementById("lightbox").addEventListener("touchend",function(){clearTimeout(holdTimer);},false);
+
+document.addEventListener("keydown",function(e){
+  if(!document.getElementById("lightbox").classList.contains("active"))return;
+  if(e.key==="ArrowRight")advanceSlide();
+  else if(e.key==="ArrowLeft")goBack();
+  else if(e.key===" "){e.preventDefault();togglePause();}
+  else if(e.key==="Escape")closeLightbox();
+});
+
+document.getElementById("lb-close").onclick=closeLightbox;
+
+document.querySelectorAll(".filter-btn").forEach(function(b){
+  b.addEventListener("click",function(){applyFilter(b.dataset.filter);});
+});
+
+loadSnaps();
+</script>
+</body>
+</html>
