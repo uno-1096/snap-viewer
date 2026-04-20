@@ -10,6 +10,10 @@ HEADERS = {
     'Accept': 'text/html,application/xhtml+xml',
 }
 
+@app.route('/timeline/<username>')
+def timeline(username):
+    return render_template('timeline.html', username=username)
+
 @app.route('/')
 def index():
     return render_template('index.html')
