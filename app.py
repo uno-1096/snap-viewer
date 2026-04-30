@@ -59,3 +59,30 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
+
+@app.route('/download-zip')
+def download_zip():
+    import zipfile, io
+    urls = request.args.getlist('url')
+    username = request.args.get('username', 'snap')
+    label = request.args.get('label', 'snaps')
+    if not urls:
+        return 'No URLs provided', 400
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for i, url in enumerate(urls):
+            if not url or url == 'undefined':
+                continue
+            try:
+                r = requests.get(url, headers=HEADERS, stream=True, timeout=15)
+                content_type = r.headers.get('Content-Type', 'image/jpeg')
+                ext = 'mp4' if 'video' in content_type else 'jpg'
+                zf.writestr(f'{username}_snap_{i:03d}.{ext}', r.content)
+            except Exception:
+                continue
+    zip_buffer.seek(0)
+    return Response(
+        zip_buffer.getvalue(),
+        content_type='application/zip',
+        headers={'Content-Disposition': f'attachment; filename="{username}_{label}.zip"'}
+    )
